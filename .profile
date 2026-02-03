@@ -1,34 +1,42 @@
 ###############################################################################
-# iSH ~/.profile — nnn + lazygit + trash + makeshift clipboard + yank/paste
+# iSH ~/.profile — nnn + lazygit + trash + clipboard + yank/paste + trash tools
 ###############################################################################
 
 # ---------- Basic QoL ----------
 export TERM="${TERM:-xterm-256color}"
 
 ###############################################################################
-# nnn configuration (env var based; no config file) [1](https://github.com/ish-app/ish/issues/2570)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
+# nnn configuration (env var based; no config file) [3](https://github.com/ish-app/ish/issues/2570)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
 ###############################################################################
 
 # Where nnn stores selected files (NULL-separated list by default).
-# nnn documents NNN_SEL as the selection file path. [1](https://github.com/ish-app/ish/issues/2570)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
 export NNN_SEL="${NNN_SEL:-${XDG_CONFIG_HOME:-$HOME/.config}/nnn/.selection}"
 
-# Plugin keybinds via NNN_PLUG [1](https://github.com/ish-app/ish/issues/2570)[3](https://ish.app/blog/default-repository-update)
-# Keep only lazygit bound by default (safe). Add more if you want later.
-export NNN_PLUG='g:lazyg.sh'
+# Plugin directory
+NNN_PLUGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/nnn/plugins"
+mkdir -p "$NNN_PLUGDIR"
 
-# Trash support:
-# nnn can use trash when configured; default is rm -rf [1](https://github.com/ish-app/ish/issues/2570)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
-# Enable trash only if trash-cli is available (trash-put or trash).
+# ---------- Trash integration ----------
+# nnn supports trash via gio trash / trash-cli; default is rm -rf. [3](https://github.com/ish-app/ish/issues/2570)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
+# We enable NNN_TRASH only if we detect trash-cli commands.
 if command -v trash-put >/dev/null 2>&1 || command -v trash >/dev/null 2>&1; then
   export NNN_TRASH=1
 else
   unset NNN_TRASH
 fi
 
-# Plugin directory
-NNN_PLUGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/nnn/plugins"
-mkdir -p "$NNN_PLUGDIR"
+# ---------- Plugin keybinds via NNN_PLUG ----------
+# nnn plugins are executable scripts; key mappings are set in NNN_PLUG. [5](https://ish.app/blog/default-repository-update)[3](https://github.com/ish-app/ish/issues/2570)
+#
+# Keys:
+#   g = lazygit
+#   y = clip yank (from nnn selection)
+#   p = clip paste (paste yanked files into cwd)
+#   T = trash list UI
+#   R = trash restore UI
+#   E = trash empty
+#   D = trash delete (remove from trash permanently)
+export NNN_PLUG='g:lazyg.sh;y:cyank.sh;p:cpaste.sh;T:tlist.sh;R:trestore.sh;E:tempty.sh;D:trm.sh'
 
 ###############################################################################
 # Makeshift clipboard (text + file clipboard) for iSH
@@ -189,18 +197,15 @@ _clip_cp_one() {
   base="$(basename "$src")"
   target="$dst/$base"
 
-  # Skip if already exists unless overwrite requested
   if [ -e "$target" ] && [ "$overwrite" != "1" ]; then
     echo "skip: exists: $target" >&2
     return 0
   fi
 
-  # Remove existing target only if overwrite requested
   if [ -e "$target" ] && [ "$overwrite" = "1" ]; then
     rm -rf "$target"
   fi
 
-  # Copy file/dir
   if [ -d "$src" ]; then
     cp -R "$src" "$dst/"
   else
@@ -208,18 +213,12 @@ _clip_cp_one() {
   fi
 }
 
-# clip paste: copy yanked files into current directory (or dest dir)
-# usage:
-#   clip paste            (copy into $PWD, skip conflicts)
-#   clip paste /dest      (copy into /dest)
-#   clip paste --overwrite
-#   clip paste --move     (move instead of copy)
+# clip paste: copy/move yanked files into current directory (or dest dir)
 clip_paste() {
   overwrite=0
   move=0
   dest=""
 
-  # parse args
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --overwrite|-f) overwrite=1;;
@@ -253,6 +252,35 @@ clip_paste() {
   echo "paste done -> $dest"
 }
 
+# -------- TRASH helpers (Yazi-like trash-cli tools) --------
+# Yazi recycle-bin uses: trash-list, trash-empty, trash-restore, trash-rm [4](https://github.com/Mu-L/yazi-file-manager)
+trash_ok() {
+  command -v trash-list >/dev/null 2>&1 && \
+  command -v trash-restore >/dev/null 2>&1 && \
+  command -v trash-empty >/dev/null 2>&1 && \
+  command -v trash-rm >/dev/null 2>&1
+}
+
+trash_list() {
+  command -v trash-list >/dev/null 2>&1 || { echo "missing trash-list (install trash-cli)"; return 1; }
+  trash-list
+}
+
+trash_restore() {
+  command -v trash-restore >/dev/null 2>&1 || { echo "missing trash-restore (install trash-cli)"; return 1; }
+  trash-restore
+}
+
+trash_empty() {
+  command -v trash-empty >/dev/null 2>&1 || { echo "missing trash-empty (install trash-cli)"; return 1; }
+  trash-empty
+}
+
+trash_rm() {
+  command -v trash-rm >/dev/null 2>&1 || { echo "missing trash-rm (install trash-cli)"; return 1; }
+  trash-rm "$@"
+}
+
 # main dispatcher
 clip() {
   sub="${1:-help}"
@@ -276,52 +304,60 @@ clip() {
     files)     clip_files;;
     paste)     clip_paste "$@";;
 
+    trash-list)    trash_list;;
+    trash-restore) trash_restore;;
+    trash-empty)   trash_empty;;
+    trash-rm)      trash_rm "$@";;
+
     help|*)
       cat <<'EOF'
-clip: makeshift clipboard for iSH (text + file clipboard)
+clip: makeshift clipboard for iSH (text + file clipboard) + trash helpers
 
 TEXT:
-  clip add "text"        Add text (or pipe stdin) to clipboard history
-  clip addf FILE         Add file contents
-  clip last              Show last entry
-  clip list              Show numbered history
-  clip pick              Fuzzy-pick one entry (needs fzf)
-  clip pickm             Fuzzy multi-pick into last (needs fzf)
-  clip del N             Delete history line N
-  clip clear             Clear history + last
-  clip clearall          Clear history + last + pins + files
-  clip pin [text]        Pin last entry (or provided text)
-  clip pins              List pins
-  clip unpin N           Remove pinned line N
-  clip edit              Edit last entry in $EDITOR and re-save
-  paste                  Print last entry
-  copy <cmd...>          Run command, save output to clipboard, print it
-  ctee                   Tee stdin into clipboard (for pipelines)
+  clip add "text"         Add text (or pipe stdin) to clipboard history
+  clip addf FILE          Add file contents
+  clip last               Show last entry
+  clip list               Show numbered history
+  clip pick               Fuzzy-pick one entry (needs fzf)
+  clip pickm              Fuzzy multi-pick into last (needs fzf)
+  clip del N              Delete history line N
+  clip clear              Clear history + last
+  clip clearall           Clear history + last + pins + files
+  clip pin [text]         Pin last entry (or provided text)
+  clip pins               List pins
+  clip unpin N            Remove pinned line N
+  clip edit               Edit last entry in $EDITOR and re-save
+  paste                   Print last entry
+  copy <cmd...>           Run command, save output to clipboard, print it
+  ctee                    Tee stdin into clipboard (for pipelines)
 
 FILES (nnn selection):
-  clip yank              Yank nnn selection (NNN_SEL) into file clipboard
-  clip files             Show yanked file list
-  clip paste [dir]       Copy yanked files into dir (default: $PWD)
-  clip paste --overwrite Overwrite existing targets
-  clip paste --move      Move instead of copy
+  clip yank               Yank nnn selection (NNN_SEL) into file clipboard
+  clip files              Show yanked file list
+  clip paste [dir]        Copy yanked files into dir (default: $PWD)
+  clip paste --overwrite  Overwrite existing targets
+  clip paste --move       Move instead of copy
 
-Examples:
-  echo hello | clip add
-  clip pick
-  copy ls -la
-  clip yank
-  cd /some/dir && clip paste
+TRASH (trash-cli like Yazi recycle-bin):
+  clip trash-list         List trash items
+  clip trash-restore      Interactive restore (trash-restore)
+  clip trash-empty        Empty trash (trash-empty)
+  clip trash-rm [args]    Remove from trash (trash-rm)
+
+Notes:
+- nnn trash support uses trash-cli/gio trash when enabled; default delete is rm -rf. [3](https://github.com/ish-app/ish/issues/2570)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
+- nnn subshell: press '!' inside nnn to spawn a shell in the current directory. [1](https://saipien.org/four-terminal-file-managers-for-linux-mc-ranger-nnn-and-yazi-for-ssh-containers-automation/)[2](https://github.com/ish-app/ish.app/blob/master/_posts/2021-04-26-default-repository-update.md)
 EOF
       ;;
   esac
 }
 
 ###############################################################################
-# nnn plugin scripts (lazygit + yank/paste plugins)
+# nnn plugin scripts (lazygit + yank/paste + trash UI plugins)
 ###############################################################################
-# nnn plugins are executable scripts in the plugins directory. [3](https://ish.app/blog/default-repository-update)
+# nnn plugins are executable scripts in the plugins directory. [5](https://ish.app/blog/default-repository-update)
 
-# lazygit plugin (keybound via NNN_PLUG above)
+# lazygit plugin (keybound via NNN_PLUG)
 if [ ! -x "$NNN_PLUGDIR/lazyg.sh" ]; then
   cat > "$NNN_PLUGDIR/lazyg.sh" <<'EOF'
 #!/bin/sh
@@ -377,6 +413,59 @@ done < "$CLIP_FILES"
 echo "pasted into $dest"
 EOF
   chmod +x "$NNN_PLUGDIR/cpaste.sh"
+fi
+
+# tlist: show trash list (optionally with fzf preview)
+if [ ! -x "$NNN_PLUGDIR/tlist.sh" ]; then
+  cat > "$NNN_PLUGDIR/tlist.sh" <<'EOF'
+#!/bin/sh
+if ! command -v trash-list >/dev/null 2>&1; then
+  echo "missing trash-list (install trash-cli)" >&2
+  exit 1
+fi
+trash-list | ${PAGER:-less}
+EOF
+  chmod +x "$NNN_PLUGDIR/tlist.sh"
+fi
+
+# trestore: interactive restore (trash-restore is already interactive)
+if [ ! -x "$NNN_PLUGDIR/trestore.sh" ]; then
+  cat > "$NNN_PLUGDIR/trestore.sh" <<'EOF'
+#!/bin/sh
+if ! command -v trash-restore >/dev/null 2>&1; then
+  echo "missing trash-restore (install trash-cli)" >&2
+  exit 1
+fi
+exec trash-restore
+EOF
+  chmod +x "$NNN_PLUGDIR/trestore.sh"
+fi
+
+# tempty: empty trash
+if [ ! -x "$NNN_PLUGDIR/tempty.sh" ]; then
+  cat > "$NNN_PLUGDIR/tempty.sh" <<'EOF'
+#!/bin/sh
+if ! command -v trash-empty >/dev/null 2>&1; then
+  echo "missing trash-empty (install trash-cli)" >&2
+  exit 1
+fi
+exec trash-empty
+EOF
+  chmod +x "$NNN_PLUGDIR/tempty.sh"
+fi
+
+# trm: remove from trash permanently (prompt via trash-rm)
+if [ ! -x "$NNN_PLUGDIR/trm.sh" ]; then
+  cat > "$NNN_PLUGDIR/trm.sh" <<'EOF'
+#!/bin/sh
+if ! command -v trash-rm >/dev/null 2>&1; then
+  echo "missing trash-rm (install trash-cli)" >&2
+  exit 1
+fi
+# trash-rm prompts for what to remove
+exec trash-rm
+EOF
+  chmod +x "$NNN_PLUGDIR/trm.sh"
 fi
 
 ###############################################################################
