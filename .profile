@@ -13,7 +13,9 @@ Cp() {
   cd ~/.local/share/calcurse
   calcurse -x > personal.ics
   echo "personal.ics merge complete" 
-  cp -f ~/.local/share/calcurse/todo ~/Documents/Calendar
-  cp -rf ~/.local/share/calcurse/notes ~/Documents/Calendar
+  cp -f ~/.local/share/calcurse/todo ~/text/Calendar
+  cp -rf ~/.local/share/calcurse/notes ~/text/Calendar
   echo "todo, notes merge complete"
+}
+mplete"
 }
